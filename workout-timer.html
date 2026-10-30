@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1220">
+<title>운동 타이머</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --card: #181c30;
+    --line: #2f3556;
+    --text: #f5f7fd;
+    --sub: #c4c9e0;
+    --muted: #9ba2c2;
+    --idle: #8aa8ff;
+    --ready: #38d6d0;
+    --soon: #ffb020;
+    --work: #35d07f;
+    --rest: #4c9aff;
+    --danger: #ff5a5f;
+    --done: #c084fc;
+    --accent: var(--idle);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100dvh;
+    background: radial-gradient(circle at 50% -10%, #232850 0%, var(--bg) 62%) fixed;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    display: flex; justify-content: center;
+  }
+  body.idle { --accent: var(--idle); --s: min(60vw, 232px, 26dvh); }
+  body.idle .tip { display: none; }
+  body.idle .exname { font-size: 28px; }
+  body.idle .app { gap: 8px; }
+  body.ready { --accent: var(--ready); }
+  body.soon { --accent: var(--soon); }
+  body.work { --accent: var(--work); }
+  body.rest { --accent: var(--rest); }
+  body.done { --accent: var(--done); }
+  body.danger { --accent: var(--danger); }
+  body.active { --s: min(88vw, 380px, 45dvh); }
+  body.danger { --btn: var(--work); }
+
+  .app {
+    width: 100%; max-width: 460px; min-height: 100dvh;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 14px 16px 0; gap: 10px;
+  }
+
+  /* ---- 상태 헤더 ---- */
+  .status { text-align: center; width: 100%; }
+  .phase { font-size: 20px; font-weight: 800; letter-spacing: 4px; color: var(--accent); transition: color .2s; min-height: 26px; }
+  .exname { font-size: 34px; font-weight: 800; line-height: 1.2; margin-top: 2px; }
+  .tip { font-size: 15px; color: var(--sub); min-height: 20px; margin-top: 2px; }
+  .setrow { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 6px; min-height: 24px; }
+  .setinfo { font-size: 18px; font-weight: 700; color: var(--sub); }
+  .dots { display: flex; gap: 6px; align-items: center; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: #3a4067; display: block; }
+  .dots i.d { background: var(--accent); }
+  .dots i.c { background: transparent; border: 2px solid var(--accent); animation: ping 1s ease-in-out infinite alternate; }
+  @keyframes ping { from { transform: scale(.85); } to { transform: scale(1.25); } }
+
+  /* ---- 스테이지 ---- */
+  .center { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: auto 0; width: 100%; }
+  .stage { width: var(--s); aspect-ratio: 1; flex: none; transition: width .3s ease, opacity .2s; cursor: pointer; }
+  .stage svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  #ringProg { transition: stroke .2s; }
+  body.paused .stage svg { opacity: .14; }
+
+  .digits {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(64px, 21vw, 92px);
+    font-weight: 800; letter-spacing: -2px; line-height: 1;
+    color: var(--accent); transition: color .2s;
+  }
+  body.idle .digits { display: none; }
+  body.danger .digits, body.soon .digits { animation: pulse .5s ease-in-out infinite alternate; }
+  body.paused .digits { animation: blink 1s steps(2, jump-none) infinite; }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.07); } }
+  @keyframes blink { 0% { opacity: 1; } 100% { opacity: .25; } }
+  .total { font-size: 15px; color: var(--sub); margin-top: -4px; }
+  body.idle .total { font-weight: 700; }
+
+  /* ---- 설정 ---- */
+  .settings { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 10px 14px; }
+  body.active .settings { display: none; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    height: 40px; min-width: 0; padding: 0 12px; border-radius: 19px; font-size: 14px; font-weight: 700;
+    background: #222744; color: var(--sub); border: 1px solid var(--line);
+  }
+  .chip[aria-pressed="true"] { background: var(--idle); color: #0b0d18; border-color: var(--idle); }
+  .chip .no { display: inline-block; min-width: 18px; margin-right: 4px; font-size: 12px; opacity: .7; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .cell { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; background: #1d2140; border: 1px solid var(--line); border-radius: 14px; padding: 8px 6px; }
+  .cell label { font-size: 14px; font-weight: 700; color: var(--sub); }
+  .cell output { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .cell output small { font-size: 13px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+  .stepper { display: flex; gap: 6px; width: 100%; }
+  .stepper button { flex: 1; min-width: 0; height: 44px; padding: 0; font-size: 24px; border-radius: 12px; touch-action: manipulation; }
+  .group-title { font-size: 15px; color: var(--sub); margin: 10px 0 6px; font-weight: 600; }
+  .summary { text-align: center; color: var(--sub); font-size: 15px; font-weight: 600; margin-top: 8px; }
+
+  /* ---- 하단 조작 ---- */
+  .dock {
+    position: sticky; bottom: 0; width: calc(100% + 32px); margin: 0 -16px 0;
+    padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+    background: linear-gradient(to top, var(--bg) 70%, rgba(15,18,32,0));
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  button {
+    border: 1px solid var(--line); border-radius: 18px; background: #222744; color: var(--text);
+    font-family: inherit; font-weight: 800; cursor: pointer; touch-action: manipulation;
+    transition: transform .08s, opacity .15s, background .2s;
+  }
+  button:active { transform: scale(.96); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:focus-visible { outline: 3px solid #b6c8ff; outline-offset: 2px; }
+  #main { height: 68px; width: 100%; background: var(--btn, var(--accent)); border-color: var(--btn, var(--accent)); color: #0b0d18; font-size: 22px; }
+  .sub { display: flex; justify-content: space-between; gap: 10px; }
+  .sub button {
+    flex: 1; height: 54px; font-size: 13px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px; color: var(--sub);
+  }
+  .sub button svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #reset.armed, #skip.armed { background: #5a1f27; border-color: var(--danger); color: #ffd8da; }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; margin: 0; }
+  @media (hover: none), (pointer: coarse) { .hint { display: none; } }
+  .pauseov .pill { background: #0f1220; border: 2px solid var(--accent); border-radius: 20px; padding: 14px 22px; line-height: 1.3; font-size: 28px; color: #fff; text-shadow: none; }
+  .pauseov .pill small { display: block; font-size: 18px; font-weight: 700; color: #fff; opacity: .9; margin-top: 2px; }
+  .pauseov { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; text-shadow: 0 2px 12px #000; text-align: center; pointer-events: none; }
+  body.paused .pauseov { display: flex; }
+  .stage { position: relative; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  kbd { border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 11px; }
+  @media (prefers-reduced-motion: reduce) {
+    body.danger .digits, body.soon .digits, body.paused .digits, .dots i.c { animation: none; }
+    .stage { transition: none; }
+  }
+</style>
+</head>
+<body class="idle">
+<div class="app">
+
+  <header class="status">
+    <div class="phase" id="phase">대기</div>
+    <div class="exname" id="exname">운동을 시작해 볼까요?</div>
+    <div class="tip" id="tip">&nbsp;</div>
+    <div class="setrow"><span class="setinfo" id="setinfo"></span><span class="dots" id="dots" aria-hidden="true"></span></div>
+  </header>
+
+  <div class="center">
+  <div class="stage" id="stage" role="button" tabindex="0" aria-label="일시정지 또는 계속. 운동 중에는 두 번 탭">
+    <div class="pauseov"><div class="pill">일시정지<small>화면을 탭하면 계속</small></div></div>
+    <svg viewBox="-10 -10 320 320" aria-hidden="true">
+      <defs><clipPath id="clipRing"><circle cx="150" cy="150" r="138"/></clipPath></defs>
+      <circle cx="150" cy="150" r="144" fill="#141830" stroke="#2f3556" stroke-width="10"/>
+      <circle id="ringProg" cx="150" cy="150" r="144" fill="none" stroke="#8aa8ff" stroke-width="10"
+              stroke-linecap="round" transform="rotate(-90 150 150)" stroke-dasharray="904.78" stroke-dashoffset="0"/>
+      <g clip-path="url(#clipRing)">
+        <!-- 정면 바닥 -->
+        <g id="gFront">
+          <rect x="56" y="262" width="188" height="7" rx="3.5" fill="#2f3556"/>
+          <ellipse id="shadow" cx="150" cy="266" rx="46" ry="6" fill="#000" opacity=".28"/>
+        </g>
+
+        <!-- 옆모습 (푸시업/플랭크) -->
+        <g id="figSide" stroke-linecap="round" stroke-linejoin="round" style="display:none"
+           transform="translate(134 156) scale(1.15) translate(-150 -216)">
+          <rect x="50" y="262" width="200" height="7" rx="3.5" fill="#2f3556"/>
+          <ellipse cx="140" cy="266" rx="96" ry="6" fill="#000" opacity=".25"/>
+          <line id="sLeg" stroke="#2b3354" stroke-width="14"/>
+          <ellipse id="sShoe" rx="9" ry="6" fill="#f4f4f8"/>
+          <path id="sArm2" fill="none" stroke="#dba97e" stroke-width="10"/>
+          <circle id="sHand2" r="6" fill="#dba97e"/>
+          <line id="sShorts" stroke="#2b3354" stroke-width="32"/>
+          <line id="sTorso" stroke="#35d07f" stroke-width="32"/>
+          <path id="sArm" fill="none" stroke="#f3c9a0" stroke-width="11"/>
+          <circle id="sElbow" r="5.6" fill="#f3c9a0"/>
+          <path id="sSleeve" fill="none" stroke="#35d07f" stroke-width="13"/>
+          <circle id="sHand" r="6.5" fill="#f3c9a0"/>
+          <circle id="sHead" r="19" fill="#f3c9a0"/>
+          <path id="sHair" fill="#2a2230"/>
+          <line id="sBand" stroke="#35d07f" stroke-width="6" stroke-linecap="butt"/>
+          <line id="sBrow" stroke="#2a2230" stroke-width="2.4"/>
+          <circle id="sEye" r="2.4" fill="#2a2230"/>
+          <circle id="sCheek" r="3.4" fill="#ff8f8f" opacity=".3"/>
+          <path id="sMouth" fill="#2a2230" stroke="#2a2230" stroke-width="2"/>
+          <path id="sSweat" d="M0 -6 C 4 0, 5 4, 0 6 C -5 4, -4 0, 0 -6Z" fill="#8fd3ff" opacity="0"/>
+        </g>
+
+        <!-- 정면 캐릭터 -->
+        <g id="fig" stroke-linecap="round" stroke-linejoin="round">
+          <path id="legL" fill="none" stroke="#2b3354" stroke-width="14"/>
+          <path id="legR" fill="none" stroke="#2b3354" stroke-width="14"/>
+          <ellipse id="soleL" rx="11.5" ry="3" fill="#7d84a3"/>
+          <ellipse id="soleR" rx="11.5" ry="3" fill="#7d84a3"/>
+          <ellipse id="shoeL" rx="11" ry="6" fill="#f4f4f8"/>
+          <ellipse id="shoeR" rx="11" ry="6" fill="#f4f4f8"/>
+          <line id="shorts" stroke="#2b3354" stroke-width="34"/>
+          <line id="torso" stroke="#35d07f" stroke-width="34"/>
+          <line id="stripe" stroke="#ffffff" stroke-width="3" opacity=".35"/>
+          <path id="armL" fill="none" stroke="#f3c9a0" stroke-width="11"/>
+          <path id="armR" fill="none" stroke="#f3c9a0" stroke-width="11"/>
+          <path id="slvL" fill="none" stroke="#35d07f" stroke-width="14"/>
+          <path id="slvR" fill="none" stroke="#35d07f" stroke-width="14"/>
+          <circle id="handL" r="6.5" fill="#f3c9a0"/>
+          <circle id="handR" r="6.5" fill="#f3c9a0"/>
+          <circle id="earL" r="4.5" fill="#e8b88c"/>
+          <circle id="earR" r="4.5" fill="#e8b88c"/>
+          <circle id="head" r="19" fill="#f3c9a0"/>
+          <path id="hair" fill="#2a2230"/>
+          <line id="band" stroke="#35d07f" stroke-width="6" stroke-linecap="butt"/>
+          <line id="browL" stroke="#2a2230" stroke-width="2.4"/>
+          <line id="browR" stroke="#2a2230" stroke-width="2.4"/>
+          <circle id="eyeL" r="2.4" fill="#2a2230"/>
+          <circle id="eyeR" r="2.4" fill="#2a2230"/>
+          <circle id="chkL" r="3.4" fill="#ff8f8f" opacity=".3"/>
+          <circle id="chkR" r="3.4" fill="#ff8f8f" opacity=".3"/>
+          <path id="mouth" fill="none" stroke="#2a2230" stroke-width="2.4"/>
+          <path id="sweat" d="M0 -6 C 4 0, 5 4, 0 6 C -5 4, -4 0, 0 -6Z" fill="#8fd3ff" opacity="0"/>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <div class="digits" id="digits" role="timer" aria-live="off">00:00</div>
+  <div class="total" id="total">&nbsp;</div>
+  </div>
+
+  <section class="settings" id="settings" aria-label="운동 설정">
+    <div class="chips" id="presets" role="group" aria-label="프리셋"></div>
+    <div class="grid3">
+      <div class="cell"><label>운동</label><output id="v-work">40<small>초</small></output>
+        <div class="stepper"><button data-k="work" data-d="-5" aria-label="운동 시간 5초 줄이기">−</button><button data-k="work" data-d="5" aria-label="운동 시간 5초 늘리기">+</button></div></div>
+      <div class="cell"><label>휴식</label><output id="v-rest">20<small>초</small></output>
+        <div class="stepper"><button data-k="rest" data-d="-5" aria-label="휴식 시간 5초 줄이기">−</button><button data-k="rest" data-d="5" aria-label="휴식 시간 5초 늘리기">+</button></div></div>
+      <div class="cell"><label>세트</label><output id="v-sets">8<small>회</small></output>
+        <div class="stepper"><button data-k="sets" data-d="-1" aria-label="세트 1회 줄이기">−</button><button data-k="sets" data-d="1" aria-label="세트 1회 늘리기">+</button></div></div>
+    </div>
+    <div class="group-title">동작 선택 · 탭한 순서대로 진행해요</div>
+    <div class="chips" id="exchips" role="group" aria-label="동작 선택"></div>
+    <div class="summary" id="summary"></div>
+  </section>
+
+  <div class="dock">
+    <button id="main">시작</button>
+    <div class="sub">
+      <button id="reset" aria-label="초기화" disabled>
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span id="resetLabel">초기화</span></button>
+      <button id="sound" aria-label="소리와 음성 안내" aria-pressed="true">
+        <svg viewBox="0 0 24 24" id="icoSound"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg><span id="soundLabel">소리 켬</span></button>
+      <button id="skip" aria-label="다음 구간으로 건너뛰기" disabled>
+        <svg viewBox="0 0 24 24"><path d="M5 5l9 7-9 7V5z"/><path d="M19 5v14"/></svg><span id="skipLabel">건너뛰기</span></button>
+    </div>
+    <p class="hint"><kbd>Space</kbd> 시작/일시정지 · <kbd>N</kbd> 건너뛰기 · <kbd>R</kbd> 초기화 · <kbd>M</kbd> 소리</p>
+  </div>
+  <div class="sr" id="live" aria-live="polite"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const mmss = s => pad(Math.floor(s / 60)) + ':' + pad(s % 60);
+const ease = t => t * t * (3 - 2 * t);
+const clamp01 = t => Math.max(0, Math.min(1, t));
+const rad = d => d * Math.PI / 180;
+
+/* ================== 캐릭터 리그 ================== */
+const LEG = 52, ARM1 = 34, ARM2 = 32, GROUND = 262, REACH = 2 * LEG * 0.97;
+const COLORS = { idle: '#8aa8ff', ready: '#38d6d0', soon: '#ffb020', work: '#35d07f', rest: '#4c9aff', done: '#c084fc', danger: '#ff5a5f' };
+
+function ik(ax, ay, bx, by, l1, l2, s) {
+  const dx = bx - ax, dy = by - ay;
+  const d = Math.max(Math.abs(l1 - l2) + 1, Math.min(l1 + l2 - 0.01, Math.hypot(dx, dy)));
+  const base = Math.atan2(dy, dx);
+  const A = Math.acos(Math.max(-1, Math.min(1, (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d))));
+  return [ax + l1 * Math.cos(base + s * A), ay + l1 * Math.sin(base + s * A)];
+}
+function arm(sx, sy, side, theta, bend) {
+  const t1 = rad(theta), t2 = rad(theta + bend);
+  const ex = sx + side * ARM1 * Math.sin(t1), ey = sy + ARM1 * Math.cos(t1);
+  return { e: [ex, ey], h: [ex + side * ARM2 * Math.sin(t2), ey + ARM2 * Math.cos(t2)] };
+}
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = c => Math.max(0, Math.min(255, Math.round(c * (1 + amt))));
+  return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(f).map(v => v.toString(16).padStart(2, '0')).join('');
+}
+const set = (id, o) => { const e = $(id); for (const k in o) e.setAttribute(k, o[k]); };
+
+function drawSide(p, color) {
+  const T = [72, 258], BL = 150, HIP_F = 0.66;
+  const rise = 258 - p.sy;
+  const S = [T[0] + Math.sqrt(BL * BL - rise * rise), p.sy];
+  const hip = [T[0] + (S[0] - T[0]) * HIP_F, T[1] + (S[1] - T[1]) * HIP_F + p.sag];
+  const dir = Math.atan2(S[1] - hip[1], S[0] - hip[0]);
+  const c = Math.cos(dir), s = Math.sin(dir);
+  set('sLeg', { x1: T[0], y1: T[1], x2: hip[0], y2: hip[1] });
+  set('sShoe', { cx: T[0] - 2, cy: T[1] + 3 });
+  set('sShorts', { x1: hip[0] - 6 * c, y1: hip[1] - 6 * s, x2: hip[0] + 8 * c, y2: hip[1] + 8 * s });
+  set('sTorso', { x1: hip[0] + 6 * c, y1: hip[1] + 6 * s, x2: S[0] - 4, y2: S[1], stroke: color });
+  const H = [212, 256], sh = [S[0] - 2, S[1] + 4];
+  const el = ik(sh[0], sh[1], H[0], H[1], 38, 36, 1);
+  set('sArm', { d: `M${sh[0]} ${sh[1]} L${el[0]} ${el[1]} L${H[0]} ${H[1]}` });
+  set('sSleeve', { d: `M${sh[0]} ${sh[1]} L${sh[0] + (el[0] - sh[0]) * 0.38} ${sh[1] + (el[1] - sh[1]) * 0.38}`, stroke: shade(color, -0.22) });
+  set('sElbow', { cx: el[0], cy: el[1] });
+  set('sHand', { cx: H[0], cy: H[1] });
+  const sh2 = [S[0] - 8, S[1] + 2], H2 = [H[0] - 9, H[1]];
+  const el2 = ik(sh2[0], sh2[1], H2[0], H2[1], 38, 36, 1);
+  set('sArm2', { d: `M${sh2[0]} ${sh2[1]} L${el2[0]} ${el2[1]} L${H2[0]} ${H2[1]}` });
+  set('sHand2', { cx: H2[0], cy: H2[1] });
+  const cx = S[0] + 24, cy = S[1] - 8 + p.headDip;
+  set('sHead', { cx, cy });
+  set('sHair', { d: `M${cx - 19} ${cy + 2} A19 19 0 0 1 ${cx + 17} ${cy - 8} L${cx + 5} ${cy + 2} Z` });
+  set('sBand', { x1: cx - 18, x2: cx + 14, y1: cy - 6, y2: cy - 10, stroke: color });
+  set('sBrow', { x1: cx + 4, y1: cy - 2.6, x2: cx + 13, y2: cy - 4.4, opacity: 1 });
+  set('sEye', { cx: cx + 9, cy: cy + 2.5 });
+  set('sCheek', { cx: cx + 3, cy: cy + 8, opacity: 0.25 + (p.sweat || 0) * 0.3 });
+  set('sMouth', { d: `M${cx + 9} ${cy + 11} a3.6 2.6 0 1 0 7.2 0 a3.6 2.6 0 1 0 -7.2 0 Z` });
+  set('sSweat', { transform: `translate(${cx - 10} ${cy - 24})`, opacity: p.sweat || 0 });
+}
+
+function drawFigure(p, color) {
+  const side = !!p.side;
+  $('fig').style.display = side ? 'none' : '';
+  $('gFront').style.display = side ? 'none' : '';
+  $('figSide').style.display = side ? '' : 'none';
+  if (side) return drawSide(p, color);
+
+  const hx = p.hipX ?? 150, hy = p.hipY;
+  const aL = [hx - 10, hy], aR = [hx + 10, hy];
+  const kL = ik(aL[0], aL[1], p.fl[0], p.fl[1], LEG, LEG, 1);
+  const kR = ik(aR[0], aR[1], p.fr[0], p.fr[1], LEG, LEG, -1);
+  set('legL', { d: `M${aL[0]} ${aL[1]} L${kL[0]} ${kL[1]} L${p.fl[0]} ${p.fl[1]}` });
+  set('legR', { d: `M${aR[0]} ${aR[1]} L${kR[0]} ${kR[1]} L${p.fr[0]} ${p.fr[1]}` });
+  set('shoeL', { cx: p.fl[0] + 2, cy: p.fl[1] + 3 });
+  set('shoeR', { cx: p.fr[0] + 2, cy: p.fr[1] + 3 });
+  set('soleL', { cx: p.fl[0] + 2, cy: p.fl[1] + 7.5 });
+  set('soleR', { cx: p.fr[0] + 2, cy: p.fr[1] + 7.5 });
+
+  const ny = hy - 54;
+  set('shorts', { x1: hx, y1: hy - 8, x2: hx, y2: hy + 4 });
+  set('torso', { x1: hx, y1: ny + 6, x2: hx, y2: hy - 6, stroke: color });
+  set('stripe', { x1: hx - 10, y1: hy - 26, x2: hx + 10, y2: hy - 26 });
+
+  const sy = ny + 12;
+  const aml = arm(hx - 17, sy, -1, p.aL, p.bend || 0);
+  const amr = arm(hx + 17, sy, 1, p.aR, p.bend || 0);
+  set('armL', { d: `M${hx - 17} ${sy} L${aml.e[0]} ${aml.e[1]} L${aml.h[0]} ${aml.h[1]}` });
+  set('armR', { d: `M${hx + 17} ${sy} L${amr.e[0]} ${amr.e[1]} L${amr.h[0]} ${amr.h[1]}` });
+  set('slvL', { d: `M${hx - 13} ${sy + 1} L${hx - 17 + (aml.e[0] - hx + 17) * 0.55} ${sy + (aml.e[1] - sy) * 0.55}`, stroke: color });
+  set('slvR', { d: `M${hx + 13} ${sy + 1} L${hx + 17 + (amr.e[0] - hx - 17) * 0.55} ${sy + (amr.e[1] - sy) * 0.55}`, stroke: color });
+  set('handL', { cx: aml.h[0], cy: aml.h[1] });
+  set('handR', { cx: amr.h[0], cy: amr.h[1] });
+
+  const cx = hx, cy = ny - 22;
+  set('earL', { cx: cx - 19, cy: cy + 3 }); set('earR', { cx: cx + 19, cy: cy + 3 });
+  set('head', { cx, cy });
+  set('hair', { d: `M${cx - 19} ${cy - 3} A19 19 0 0 1 ${cx + 19} ${cy - 3} Z` });
+  set('band', { x1: cx - 18.4, x2: cx + 18.4, y1: cy - 6, y2: cy - 6, stroke: color });
+  // 표정: 운동 중엔 결연하게, 완료 땐 눈썹 올림
+  const bi = p.mood === 'work' ? 1.6 : p.mood === 'smile' ? -0.8 : 0;
+  set('browL', { x1: cx - 11, y1: cy - 2.5 - bi * 0.4, x2: cx - 3, y2: cy - 2.5 + bi * 0.5 });
+  set('browR', { x1: cx + 11, y1: cy - 2.5 - bi * 0.4, x2: cx + 3, y2: cy - 2.5 + bi * 0.5 });
+  set('eyeL', { cx: cx - 7, cy: cy + 3 }); set('eyeR', { cx: cx + 7, cy: cy + 3 });
+  const ck = 0.15 + (p.mood === 'work' ? 0.2 : 0) + (p.sweat || 0) * 0.3;
+  set('chkL', { cx: cx - 12, cy: cy + 9, opacity: ck }); set('chkR', { cx: cx + 12, cy: cy + 9, opacity: ck });
+  if (p.mood === 'work') set('mouth', { d: `M${cx - 6} ${cy + 10} Q${cx} ${cy + 20} ${cx + 6} ${cy + 10} Z`, fill: '#2a2230' });
+  else if (p.mood === 'smile') set('mouth', { d: `M${cx - 8} ${cy + 9} Q${cx} ${cy + 19} ${cx + 8} ${cy + 9}`, fill: 'none' });
+  else set('mouth', { d: `M${cx - 6} ${cy + 11} Q${cx} ${cy + 16} ${cx + 6} ${cy + 11}`, fill: 'none' });
+  set('sweat', { transform: `translate(${cx + 25} ${cy - 6})`, opacity: p.sweat || 0 });
+
+  const lift = Math.max(0, GROUND - Math.max(p.fl[1], p.fr[1]));
+  set('shadow', { cx: hx, rx: Math.max(20, 46 - lift * 0.6), opacity: Math.max(0.08, 0.28 - lift * 0.004) });
+}
+
+/* ================== 동작별 포즈 ================== */
+const standY = GROUND - REACH + 3;
+function standing(extra = {}) {
+  return Object.assign({ hipY: standY, fl: [132, GROUND], fr: [168, GROUND], aL: 12, aR: 12, bend: 0, mood: 'rest' }, extra);
+}
+function poseJJ(p) {
+  const t = (1 - Math.cos(2 * Math.PI * p)) / 2;
+  const lift = (1 - Math.cos(4 * Math.PI * p)) / 2 * 16;
+  const dx = 18 + 40 * t, fy = GROUND - lift;
+  const hipY = fy - Math.sqrt(Math.max(0, REACH * REACH - dx * dx)) + 3;
+  const ta = (1 - Math.cos(2 * Math.PI * (p - 0.06))) / 2;       // 팔은 살짝 늦게 따라온다
+  return { hipY, fl: [150 - dx, fy], fr: [150 + dx, fy], aL: 12 + 150 * ta, aR: 12 + 150 * ta, bend: 0, mood: 'work' };
+}
+function poseSquat(p) {
+  const d = (1 - Math.cos(2 * Math.PI * p)) / 2;
+  const dx = 24 + d * 12;
+  return { hipY: GROUND - (REACH - 3 - d * 52), fl: [150 - dx, GROUND], fr: [150 + dx, GROUND],
+           aL: 15 + 75 * d, aR: 15 + 75 * d, bend: 0, mood: 'work' };
+}
+function posePushup(p) {
+  const d = (1 - Math.cos(2 * Math.PI * p)) / 2;
+  return { side: true, sy: 194 + d * 36, sag: Math.sin(Math.PI * d) * 2, headDip: d * 2, mood: 'work' };
+}
+function poseHigh(p) {
+  const s = Math.sin(2 * Math.PI * p);
+  const lL = Math.max(0, s), lR = Math.max(0, -s);
+  return { hipY: standY + 4 - Math.abs(s) * 5, fl: [130, GROUND - lL * 60], fr: [170, GROUND - lR * 60],
+           aL: 25 + lR * 110, aR: 25 + lL * 110, bend: 40, mood: 'work' };
+}
+function poseJumpSquat(p) {
+  let depth = 0, air = 0;
+  if (p < 0.3) depth = ease(p / 0.3);
+  else if (p < 0.5) depth = 1 - ease((p - 0.3) / 0.2);
+  else if (p < 0.75) { depth = 0; air = Math.sin(Math.PI * (p - 0.5) / 0.25); }
+  else if (p < 0.88) depth = 0.55 * ease((p - 0.75) / 0.13);
+  else depth = 0.55 * (1 - ease((p - 0.88) / 0.12));
+  const dx = 22 + depth * 12, fy = GROUND - air * 42;
+  return { hipY: fy - (REACH - 3 - depth * 52), fl: [150 - dx, fy], fr: [150 + dx, fy],
+           aL: 15 + depth * 35 + air * 140, aR: 15 + depth * 35 + air * 140, bend: 0, mood: 'work' };
+}
+function posePlank(p) {
+  const tremble = Math.sin(p * Math.PI * 2 * 7) * 0.8;
+  return { side: true, sy: 206 + tremble, sag: 2 + Math.sin(p * Math.PI * 2) * 1.2, headDip: 1, mood: 'work' };
+}
+const ALL_EX = [
+  { name: '점핑잭',     period: 1.0, fn: poseJJ,        tip: '팔다리를 크게 벌렸다 모아요' },
+  { name: '스쿼트',     period: 2.0, fn: poseSquat,     tip: '엉덩이를 뒤로, 무릎은 발끝 방향으로' },
+  { name: '푸시업',     period: 2.0, fn: posePushup,    tip: '몸을 일직선으로 내려갔다 올라와요' },
+  { name: '하이니',     period: 0.7, fn: poseHigh,      tip: '무릎을 허리 높이까지 빠르게' },
+  { name: '점프 스쿼트', period: 1.8, fn: poseJumpSquat, tip: '깊게 앉았다 힘차게 점프' },
+  { name: '플랭크',     period: 4.0, fn: posePlank,     tip: '엉덩이가 처지지 않게 버텨요' }
+];
+const PRESETS = [
+  { n: '타바타', w: 20, r: 10, s: 8 },
+  { n: '30/30', w: 30, r: 30, s: 10 },
+  { n: '40/20', w: 40, r: 20, s: 8 },
+  { n: '45/15', w: 45, r: 15, s: 6 }
+];
+
+/* ================== 상태 / 저장 ================== */
+const cfg = { work: 40, rest: 20, sets: 8 };
+let sel = [0, 1, 2, 3, 4];                         // 선택된 동작 인덱스
+try {
+  const sv = JSON.parse(localStorage.getItem('workout-timer-v2') || 'null');
+  if (sv) { Object.assign(cfg, sv.cfg || {}); if (Array.isArray(sv.sel) && sv.sel.length) sel = sv.sel.filter(i => ALL_EX[i]); }
+} catch (e) {}
+if (!sel.length) sel = [0];
+const save = () => { try { localStorage.setItem('workout-timer-v2', JSON.stringify({ cfg, sel })); } catch (e) {} };
+const EX = () => sel.map(i => ALL_EX[i]);
+let history = [];
+try { history = JSON.parse(localStorage.getItem('workout-timer-hist') || '[]'); } catch (e) {}
+const weekCount = () => history.filter(h => Date.now() - h.d < 7 * 864e5).length;
+
+const READY_SEC = 3;
+let segs = [], idx = 0, segMs = 0, totalMs = 0, animMs = 0;
+let state = 'idle';                                 // idle | running | paused | done
+let lastT = performance.now(), lastRem = -1;
+let soundOn = true, ctx = null, wakeLock = null;
+
+function buildSegs() {
+  segs = [{ type: 'ready', dur: READY_SEC * 1000 }];
+  for (let i = 0; i < cfg.sets; i++) {
+    segs.push({ type: 'work', dur: cfg.work * 1000, set: i });
+    if (i < cfg.sets - 1 && cfg.rest > 0) segs.push({ type: 'rest', dur: cfg.rest * 1000, set: i });
+  }
+}
+
+/* ================== 사운드 / 음성 / 진동 ================== */
+function ensureAudio() {
+  if (ctx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (AC) ctx = new AC();
+}
+function beep(freq, dur, vol = 0.28) {
+  if (!soundOn || !ctx) return;
+  const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+function say(text) {
+  if (!soundOn) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ko-KR'; u.rate = 1.1;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch (e) {}
+}
+function buzz(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+async function lock() { try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+function unlock() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+const announce = t => { $('live').textContent = t; };
+
+/* ================== 렌더 ================== */
+function setTheme(name) {
+  const b = document.body;
+  b.classList.remove('idle', 'ready', 'soon', 'work', 'rest', 'done', 'danger');
+  b.classList.add(name);
+  b.classList.toggle('active', state !== 'idle');
+  b.classList.toggle('paused', state === 'paused');
+  $('ringProg').setAttribute('stroke', COLORS[name]);
+}
+
+function render() {
+  const list = EX();
+  let theme, pose;
+  if (state === 'idle') {
+    theme = 'idle';
+    const di = Math.floor(animMs / 3500) % list.length, dex = list[di];
+    pose = dex.fn(((animMs / 1000) / dex.period) % 1);
+    $('ringProg').setAttribute('stroke-dashoffset', 0);
+    $('total').textContent = '미리보기 · ' + dex.name;
+  } else if (state === 'done') {
+    theme = 'done';
+    const hop = Math.abs(Math.sin(animMs / 1000 * 5)) * 10;
+    const wv = Math.sin(animMs / 1000 * 5) * 10;
+    pose = { hipY: standY - hop, fl: [134, GROUND - hop], fr: [166, GROUND - hop], aL: 158 + wv, aR: 158 - wv, bend: 0, mood: 'smile' };
+    $('ringProg').setAttribute('stroke-dashoffset', 0);
+    $('digits').textContent = mmss(Math.floor(totalMs / 1000));
+  } else {
+    const seg = segs[idx];
+    const remMs = Math.max(0, seg.dur - segMs);
+    const remSec = Math.ceil(remMs / 1000);
+    theme = seg.type;
+    if (seg.type === 'work' && remSec <= 3 && remSec > 0) theme = 'danger';
+    if (seg.type === 'rest' && remSec <= 3 && remSec > 0) theme = 'soon';
+    if (seg.type === 'ready') {
+      const k = ease(clamp01(segMs / 2200));
+      pose = standing({ aL: 12 + 150 * k, aR: 12 + 150 * k, hipY: standY - Math.sin(clamp01(segMs / 3000) * Math.PI) * 4 });
+    } else if (seg.type === 'work') {
+      const ex = list[seg.set % list.length];
+      const ph = ((segMs / 1000) / ex.period) % 1;
+      pose = ex.fn(ph);
+      pose.sweat = clamp01((segMs - 6000) / 6000) * 0.85;
+    } else if (remSec <= 3) {
+      // 휴식 끝 3초: 다음 동작의 시작 자세로 미리 준비
+      const nx = list[(seg.set + 1) % list.length];
+      pose = nx.fn(0); pose.mood = 'rest';
+      if (!pose.side) pose.hipY -= Math.abs(Math.sin(animMs / 140)) * 3;
+    } else {
+      const br = Math.sin(animMs / 550);
+      pose = standing({ hipY: standY + 1 + br * 1.5, aL: 22 + br * 4, aR: 22 + br * 4, bend: 25 });
+    }
+    $('ringProg').setAttribute('stroke-dashoffset', 904.78 * (1 - remMs / seg.dur));
+    $('digits').textContent = mmss(remSec);
+    $('phase').textContent = state === 'paused' ? '일시정지' : phaseName(seg.type, theme);
+  }
+  setTheme(theme);
+  drawFigure(pose, COLORS[theme]);
+  if (state !== 'idle') $('total').textContent = (state === 'done' ? '총 운동 시간' : '경과 ' + mmss(Math.floor(totalMs / 1000)));
+  $('main').textContent = state === 'running' ? '일시정지' : state === 'paused' ? '계속' : state === 'done' ? '다시 시작' : '시작';
+}
+function phaseName(type, theme) {
+  if (type === 'ready') return '준비';
+  if (type === 'work') return theme === 'danger' ? '운동 · 곧 종료' : '운동';
+  return theme === 'soon' ? '휴식 · 곧 시작' : '휴식';
+}
+
+function renderLabels() {
+  const list = EX();
+  const dots = $('dots');
+  if (state === 'idle') {
+    $('phase').textContent = '대기';
+    $('exname').textContent = '운동을 시작해 볼까요?';
+    $('tip').textContent = list.map(e => e.name).join(' · ');
+    $('setinfo').textContent = `이번 주 ${weekCount()}회 완료`;
+    dots.innerHTML = '';
+    return;
+  }
+  const seg = segs[idx];
+  if (state === 'done') {
+    $('phase').textContent = '완료';
+    $('exname').textContent = '수고했어요!';
+    $('tip').textContent = '오늘도 해냈습니다';
+    $('setinfo').textContent = `${cfg.sets}세트 완료 · 이번 주 ${weekCount()}회째`;
+    dots.innerHTML = Array.from({ length: Math.min(cfg.sets, 12) }, () => '<i class="d"></i>').join('');
+    return;
+  }
+  const cur = seg.type === 'ready' ? 0 : seg.set + (seg.type === 'rest' ? 1 : 0);
+  const doneN = seg.type === 'ready' ? 0 : seg.type === 'work' ? seg.set : seg.set + 1;
+  if (cfg.sets <= 12) {
+    dots.innerHTML = Array.from({ length: cfg.sets }, (_, i) => `<i class="${i < doneN ? 'd' : (seg.type === 'work' && i === seg.set) ? 'c' : ''}"></i>`).join('');
+  } else dots.innerHTML = '';
+  if (seg.type === 'ready') {
+    $('exname').textContent = '곧 시작합니다';
+    $('tip').textContent = '첫 동작: ' + list[0].name;
+    $('setinfo').textContent = `총 ${cfg.sets}세트 · 화면을 두 번 탭하면 일시정지`;
+    announce('준비. 곧 시작합니다. 첫 동작 ' + list[0].name);
+  } else if (seg.type === 'work') {
+    const ex = list[seg.set % list.length];
+    const nxt = seg.set + 1 < cfg.sets ? list[(seg.set + 1) % list.length].name : null;
+    $('exname').textContent = ex.name;
+    $('tip').textContent = ex.tip;
+    $('setinfo').textContent = `세트 ${seg.set + 1} / ${cfg.sets}` + (nxt ? ` · 다음 ${nxt}` : ' · 마지막!');
+    announce(`운동 ${ex.name}, 세트 ${seg.set + 1} / ${cfg.sets}`);
+  } else {
+    const nx = list[(seg.set + 1) % list.length];
+    $('exname').textContent = '다음 · ' + nx.name;
+    $('tip').textContent = nx.tip;
+    $('setinfo').textContent = `세트 ${seg.set + 2} / ${cfg.sets}`;
+    announce('휴식. 다음 동작 ' + nx.name);
+  }
+}
+
+/* ================== 설정 UI ================== */
+function renderSettings() {
+  $('v-work').innerHTML = cfg.work + '<small>초</small>'; $('v-rest').innerHTML = cfg.rest + '<small>초</small>'; $('v-sets').innerHTML = cfg.sets + '<small>회</small>';
+  $('presets').innerHTML = PRESETS.map((p, i) =>
+    `<button class="chip" data-p="${i}" aria-pressed="${p.w === cfg.work && p.r === cfg.rest && p.s === cfg.sets}">${p.n}</button>`).join('');
+  $('exchips').innerHTML = ALL_EX.map((e, i) =>
+    `<button class="chip" data-e="${i}" aria-pressed="${sel.includes(i)}">${sel.includes(i) ? '<span class="no">' + (sel.indexOf(i) + 1) + '</span>' : ''}${e.name}</button>`).join('');
+  const total = cfg.sets * cfg.work + (cfg.sets - 1) * cfg.rest;
+  $('summary').textContent = `총 약 ${mmss(total)} · 동작 ${sel.length}가지 순환`;
+  renderLabels();
+}
+$('presets').addEventListener('click', e => {
+  const b = e.target.closest('[data-p]'); if (!b) return;
+  const p = PRESETS[+b.dataset.p]; cfg.work = p.w; cfg.rest = p.r; cfg.sets = p.s; save(); renderSettings();
+});
+$('exchips').addEventListener('click', e => {
+  const b = e.target.closest('[data-e]'); if (!b) return;
+  const i = +b.dataset.e;
+  if (sel.includes(i)) { if (sel.length > 1) sel = sel.filter(x => x !== i); } else sel.push(i);
+  save(); renderSettings();
+});
+document.querySelectorAll('.stepper button').forEach(b => {
+  let t, iv;
+  const step = () => {
+    const k = b.dataset.k, d = +b.dataset.d;
+    const lim = { work: [5, 600], rest: [0, 600], sets: [1, 30] }[k];
+    cfg[k] = Math.max(lim[0], Math.min(lim[1], cfg[k] + d)); save(); renderSettings();
+  };
+  const stop = () => { clearTimeout(t); clearInterval(iv); };
+  b.addEventListener('pointerdown', e => { e.preventDefault(); step(); t = setTimeout(() => { iv = setInterval(step, 90); }, 420); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+  b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); step(); } });
+});
+
+/* ================== 시간 진행 (실제 시계 기준) ================== */
+function enterSeg(i, carry, quiet) {
+  idx = i; segMs = carry; lastRem = -1;
+  if (idx >= segs.length) { finish(); return; }
+  const seg = segs[idx];
+  if (!quiet) {
+    if (seg.type === 'work') { beep(1320, 0.5, 0.32); buzz(200); say(EX()[seg.set % EX().length].name); }
+    else if (seg.type === 'rest') { beep(660, 0.45, 0.3); buzz([120, 80, 120]); say('휴식'); }
+  }
+  renderLabels();
+}
+function finish() {
+  state = 'done';
+  beep(880, 0.2); setTimeout(() => beep(1175, 0.2), 200); setTimeout(() => beep(1568, 0.5), 400);
+  buzz([200, 100, 200, 100, 400]); say('운동 완료. 수고했어요');
+  history.push({ d: Date.now(), s: Math.floor(totalMs / 1000) }); history = history.slice(-60);
+  try { localStorage.setItem('workout-timer-hist', JSON.stringify(history)); } catch (e) {}
+  unlock(); setButtons(); renderLabels();
+  announce('운동 완료. 수고했어요');
+}
+function advance(now) {
+  const dt = Math.max(0, now - lastT); lastT = now;
+  animMs += Math.min(dt, 250);
+  if (state !== 'running') return;
+  segMs += dt; totalMs += dt;
+  // 백그라운드에 있었다면 지난 구간들을 한 번에 따라잡는다
+  let target = idx, rest = segMs, jumped = false;
+  while (target < segs.length && rest >= segs[target].dur) { rest -= segs[target].dur; target++; jumped = true; }
+  if (jumped) { enterSeg(target, rest, false); return; }
+  const remSec = Math.ceil(Math.max(0, segs[idx].dur - segMs) / 1000);
+  if (remSec !== lastRem) {
+    lastRem = remSec;
+    if (remSec >= 1 && remSec <= 3) beep(880, 0.12);
+  }
+}
+function frame(now) { advance(now); render(); requestAnimationFrame(frame); }
+setInterval(() => advance(performance.now()), 250);  // 화면이 가려져 rAF가 멈춰도 시간은 계속 간다
+
+/* ================== 컨트롤 ================== */
+function setButtons() {
+  $('reset').disabled = state === 'idle';
+  $('skip').disabled = !(state === 'running' || state === 'paused');
+}
+function startWorkout() {
+  ensureAudio(); ctx && ctx.resume();
+  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
+  buildSegs(); totalMs = 0; lastT = performance.now();
+  state = 'running'; enterSeg(0, 0, true);
+  beep(880, 0.12); lock(); setButtons();
+}
+function mainAction() {
+  if (state === 'idle' || state === 'done') startWorkout();
+  else if (state === 'running') { state = 'paused'; unlock(); try { speechSynthesis.cancel(); } catch (e) {} announce('일시정지'); }
+  else if (state === 'paused') { ensureAudio(); ctx && ctx.resume(); lastT = performance.now(); state = 'running'; lock(); announce('계속'); }
+  setButtons();
+}
+function resetAll() {
+  state = 'idle'; idx = 0; segMs = 0; totalMs = 0; unlock(); setButtons(); disarm(); disarmSkip();
+  try { speechSynthesis.cancel(); } catch (e) {}
+  renderLabels(); announce('초기화했습니다');
+}
+let armTimer = null;
+function disarm() { clearTimeout(armTimer); armTimer = null; $('reset').classList.remove('armed'); $('resetLabel').textContent = '초기화'; }
+function resetPress() {
+  if (state === 'done') return resetAll();
+  if (armTimer) return resetAll();                 // 두 번 눌러야 초기화 (실수 방지)
+  $('reset').classList.add('armed'); $('resetLabel').textContent = '한 번 더';
+  armTimer = setTimeout(disarm, 2500);
+}
+let skipArm = null;
+function disarmSkip() { clearTimeout(skipArm); skipArm = null; $('skip').classList.remove('armed'); $('skipLabel').textContent = '건너뛰기'; }
+function doSkip() { disarmSkip(); if (state === 'running' || state === 'paused') enterSeg(idx + 1, 0, state === 'paused'); }
+function skip() {
+  if (!(state === 'running' || state === 'paused')) return;
+  if (skipArm) return doSkip();                    // 두 번 눌러야 건너뜀 (실수 방지)
+  $('skip').classList.add('armed'); $('skipLabel').textContent = '한 번 더';
+  skipArm = setTimeout(disarmSkip, 2500);
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  $('sound').setAttribute('aria-pressed', soundOn);
+  $('soundLabel').textContent = soundOn ? '소리 켬' : '소리 끔';
+  $('icoSound').innerHTML = soundOn
+    ? '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>'
+    : '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/>';
+  if (!soundOn) { try { speechSynthesis.cancel(); } catch (e) {} }
+}
+
+$('main').addEventListener('click', mainAction);
+$('reset').addEventListener('click', resetPress);
+$('skip').addEventListener('click', skip);
+$('sound').addEventListener('click', toggleSound);
+$('stage').addEventListener('keydown', e => { if (e.key === 'Enter' && (state === 'running' || state === 'paused')) { e.preventDefault(); mainAction(); } });
+let lastTap = 0;
+$('stage').addEventListener('click', () => {
+  const now = performance.now();
+  if (state === 'paused') mainAction();                            // 멈춘 상태: 한 번 탭하면 계속
+  else if (state === 'running') { if (now - lastTap < 400) mainAction(); lastTap = now; }  // 운동 중: 두 번 탭해야 일시정지
+});
+
+document.addEventListener('keydown', e => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase(), onBtn = e.target.closest && e.target.closest('button');
+  if (e.code === 'Space' && !onBtn) { e.preventDefault(); mainAction(); }
+  else if (onBtn) return;
+  else if (k === 'n') doSkip();
+  else if (k === 'r' && state !== 'idle') resetAll();
+  else if (k === 'm') toggleSound();
+});
+document.addEventListener('visibilitychange', () => {
+  advance(performance.now());
+  if (!document.hidden && state === 'running') lock();
+});
+
+renderSettings(); setButtons();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
