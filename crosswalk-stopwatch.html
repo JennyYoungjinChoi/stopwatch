@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>횡단보도 스탑워치</title>
+<style>
+  :root {
+    --night: #1a1d2e;
+    --panel: #15171f;
+    --led: #ff9d2e;
+    --led-dim: #3a2a14;
+    --green: #38e07b;
+    --red: #ff4d4d;
+    --text: #f2f3f7;
+    --muted: #9aa0b4;
+    --line: #2b2f44;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at 50% 0%, #2a2f52 0%, var(--night) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 32px;
+    gap: 20px;
+  }
+  .wrap { width: 100%; max-width: 860px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* 보행자 신호등 */
+  .signal {
+    align-self: center;
+    background: var(--panel);
+    border: 3px solid #0b0c10;
+    border-radius: 20px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 0 0 2px #2a2d3a;
+  }
+  .lamp {
+    width: 64px; height: 84px;
+    background: #0a0b0f;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .lamp svg { width: 44px; height: 64px; }
+  .lamp .walk { display: none; }
+  .signal.running .lamp .stand { display: none; }
+  .signal.running .lamp .walk { display: block; }
+  .digits {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: clamp(38px, 11vw, 62px);
+    font-weight: 700;
+    color: var(--led);
+    text-shadow: 0 0 14px rgba(255,157,46,.55);
+    background: #0a0b0f;
+    border-radius: 12px;
+    padding: 10px 16px;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+    min-width: 5.6ch;
+    text-align: center;
+  }
+  .digits .cs { font-size: .55em; opacity: .85; }
+
+  /* 장면 */
+  .scene {
+    width: 100%;
+    border-radius: 20px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    line-height: 0;
+  }
+  .scene svg { width: 100%; height: auto; display: block; }
+
+  /* 버튼 */
+  .controls { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  button {
+    height: 56px;
+    min-width: 120px;
+    padding: 0 28px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #23263a;
+    color: var(--text);
+    font-size: 17px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform .08s, opacity .15s;
+  }
+  button:active { transform: scale(.96); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:focus-visible { outline: 2px solid #7aa2ff; outline-offset: 2px; }
+  button.go { background: #1f9d55; border-color: #1f9d55; }
+  button.go.running { background: #d9383d; border-color: #d9383d; }
+  button.sound { min-width: 56px; padding: 0 16px; }
+
+  /* 랩 */
+  .laps {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 280px; overflow-y: auto;
+  }
+  .laps li {
+    display: flex; align-items: center; gap: 14px;
+    background: #20233a;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 16px;
+    font-variant-numeric: tabular-nums;
+    animation: pop .25s ease-out;
+  }
+  .laps .ico { font-size: 26px; }
+  .laps .n { color: var(--muted); width: 52px; }
+  .laps .split { flex: 1; font-weight: 700; }
+  .laps .total { color: var(--muted); }
+  .laps li.best .split { color: var(--green); }
+  .laps li.worst .split { color: var(--red); }
+  @keyframes pop { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .empty { text-align: center; color: var(--muted); font-size: 14px; margin: 0; }
+  .hint { text-align: center; color: var(--muted); font-size: 12px; margin: 0; }
+  kbd { border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="signal" id="signal">
+    <div class="lamp" aria-hidden="true">
+      <!-- 정지: 빨간 서 있는 사람 -->
+      <svg class="stand" viewBox="0 0 44 64">
+        <g fill="#ff4d4d" style="filter:drop-shadow(0 0 5px #ff4d4d)">
+          <circle cx="22" cy="9" r="6"/>
+          <rect x="13" y="18" width="18" height="22" rx="6"/>
+          <rect x="14" y="38" width="6" height="22" rx="3"/>
+          <rect x="24" y="38" width="6" height="22" rx="3"/>
+        </g>
+      </svg>
+      <!-- 진행: 초록 걷는 사람 -->
+      <svg class="walk" viewBox="0 0 44 64">
+        <g fill="#38e07b" style="filter:drop-shadow(0 0 5px #38e07b)">
+          <circle cx="24" cy="9" r="6"/>
+          <path d="M16 20 L32 20 L30 40 L18 40 Z"/>
+          <path d="M18 38 L25 38 L16 60 L10 60 Z"/>
+          <path d="M23 38 L30 38 L36 60 L30 60 Z"/>
+          <path d="M14 22 L9 36 L13 37 L19 24 Z"/>
+          <path d="M30 22 L36 34 L32 36 L27 24 Z"/>
+        </g>
+      </svg>
+    </div>
+    <div class="digits" id="digits">00:00<span class="cs">.00</span></div>
+  </div>
+
+  <div class="scene">
+    <svg viewBox="0 0 800 300" id="scene" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#3b4a8f"/>
+          <stop offset="1" stop-color="#f2a65a"/>
+        </linearGradient>
+      </defs>
+      <rect width="800" height="190" fill="url(#sky)"/>
+      <!-- 달 -->
+      <circle cx="680" cy="48" r="22" fill="#fff6d6" opacity=".9"/>
+      <!-- 건물 실루엣 -->
+      <g fill="#1d2038">
+        <rect x="0" y="95" width="90" height="95"/>
+        <rect x="100" y="60" width="70" height="130"/>
+        <rect x="180" y="110" width="110" height="80"/>
+        <rect x="300" y="75" width="80" height="115"/>
+        <rect x="390" y="120" width="100" height="70"/>
+        <rect x="500" y="55" width="90" height="135"/>
+        <rect x="600" y="100" width="80" height="90"/>
+        <rect x="690" y="70" width="110" height="120"/>
+      </g>
+      <!-- 창문 -->
+      <g fill="#ffd36b" opacity=".85" id="windows"></g>
+      <!-- 보도 -->
+      <rect y="170" width="800" height="32" fill="#8d8fa3"/>
+      <rect y="198" width="800" height="5" fill="#6f7186"/>
+      <!-- 도로 -->
+      <rect y="203" width="800" height="97" fill="#343746"/>
+      <!-- 횡단보도 -->
+      <g fill="#f4f4f4" id="zebra"></g>
+      <!-- 캐릭터 -->
+      <g id="animals"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <button id="lapReset" disabled>랩</button>
+    <button id="startStop" class="go">시작</button>
+    <button id="sound" class="sound" title="소리 켜기/끄기" aria-label="소리 켜기/끄기">🔊</button>
+  </div>
+
+  <ul class="laps" id="laps"></ul>
+  <p class="empty" id="empty">랩 버튼을 누를 때마다 동물 친구가 하나씩 건너옵니다</p>
+  <p class="hint"><kbd>Space</kbd> 시작/정지 · <kbd>L</kbd> 랩 · <kbd>R</kbd> 초기화 · <kbd>M</kbd> 소리</p>
+</div>
+
+<script>
+/* ===== 장면 만들기 ===== */
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+
+// 창문
+const win = document.getElementById('windows');
+[[10,105],[40,105],[10,135],[40,135],[110,72],[135,72],[110,100],[135,100],[110,128],[135,128],
+ [195,122],[225,122],[255,122],[310,88],[340,88],[310,116],[340,116],[400,132],[440,132],
+ [510,68],[540,68],[510,98],[540,98],[510,128],[540,128],[610,112],[640,112],
+ [700,82],[735,82],[770,82],[700,112],[735,112],[770,112]]
+ .forEach(([x,y]) => { if ((x*7 + y*3) % 5 !== 0) el('rect', {x, y, width: 14, height: 18, rx: 2}, win); });
+
+// 횡단보도
+const zebra = document.getElementById('zebra');
+for (let x = -10; x < 820; x += 70) {
+  el('polygon', { points: `${x+12},212 ${x+58},212 ${x+46},292 ${x},292` }, zebra);
+}
+
+const SPECIES = {
+  cat:    { body: '#f0a04b', belly: '#ffd9a8', dark: '#c9772a', icon: '🐱' },
+  dog:    { body: '#b9855a', belly: '#e8cfae', dark: '#8a5c37', icon: '🐶' },
+  rabbit: { body: '#eeeeee', belly: '#ffffff', dark: '#cfcfcf', icon: '🐰' },
+  bear:   { body: '#7a5236', belly: '#b08462', dark: '#573a25', icon: '🐻' }
+};
+
+function buildAnimal(type) {
+  const c = SPECIES[type];
+  const root = el('g');
+  const bob = el('g', {}, root);
+
+  const legs = [];
+  const mkLeg = (px, color) => {
+    const g = el('g', {}, bob);
+    el('rect', { x: -6, y: 0, width: 12, height: 30, rx: 6, fill: color }, g);
+    el('ellipse', { cx: 2, cy: 30, rx: 9, ry: 5, fill: color }, g);
+    legs.push({ g, px });
+    return g;
+  };
+  // 먼 쪽 다리(어둡게) → 몸 → 가까운 쪽 다리
+  mkLeg(-18, c.dark); mkLeg(14, c.dark);
+
+  const tail = el('g', {}, bob);
+  const body = el('g', {}, bob);
+  const head = el('g', {}, bob);
+
+  // 몸
+  el('ellipse', { cx: 0, cy: -46, rx: 36, ry: 24, fill: c.body }, body);
+  el('ellipse', { cx: 4, cy: -38, rx: 24, ry: 14, fill: c.belly }, body);
+
+  // 머리
+  el('circle', { cx: 40, cy: -66, r: 19, fill: c.body }, head);
+  el('circle', { cx: 46, cy: -68, r: 3, fill: '#1a1a1a' }, head);
+  el('circle', { cx: 47, cy: -69, r: 1, fill: '#fff' }, head);
+  el('ellipse', { cx: 56, cy: -62, rx: 6, ry: 5, fill: c.belly }, head);
+  el('circle', { cx: 59, cy: -63, r: 2.4, fill: '#222' }, head);
+  el('path', { d: 'M52 -56 Q56 -52 60 -57', stroke: '#222', 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }, head);
+
+  const ears = el('g', {}, head);
+  if (type === 'cat') {
+    el('polygon', { points: '28,-78 30,-98 42,-82', fill: c.body }, ears);
+    el('polygon', { points: '42,-82 52,-98 54,-76', fill: c.body }, ears);
+    el('polygon', { points: '31,-82 32,-92 38,-83', fill: '#ff9aa8' }, ears);
+    el('path', { d: 'M48 -60 L62 -62 M48 -57 L62 -55', stroke: '#444', 'stroke-width': 1, fill: 'none' }, head);
+    el('path', { d: 'M-34 -50 Q-62 -52 -56 -90', stroke: c.body, 'stroke-width': 9, fill: 'none', 'stroke-linecap': 'round' }, tail);
+    el('path', { d: 'M18 -80 L22 -64 M30 -84 L33 -68', stroke: c.dark, 'stroke-width': 3, fill: 'none', 'stroke-linecap': 'round' }, head);
+  } else if (type === 'dog') {
+    el('ellipse', { cx: 30, cy: -62, rx: 8, ry: 17, fill: c.dark, transform: 'rotate(18 30 -62)' }, ears);
+    el('ellipse', { cx: 50, cy: -80, rx: 6, ry: 10, fill: c.dark, transform: 'rotate(-20 50 -80)' }, ears);
+    el('path', { d: 'M-34 -56 Q-52 -62 -50 -78', stroke: c.body, 'stroke-width': 9, fill: 'none', 'stroke-linecap': 'round' }, tail);
+  } else if (type === 'rabbit') {
+    el('ellipse', { cx: 34, cy: -102, rx: 6, ry: 22, fill: c.body, transform: 'rotate(-8 34 -102)' }, ears);
+    el('ellipse', { cx: 34, cy: -102, rx: 3, ry: 16, fill: '#ffb3c1', transform: 'rotate(-8 34 -102)' }, ears);
+    el('ellipse', { cx: 48, cy: -100, rx: 6, ry: 21, fill: c.body, transform: 'rotate(10 48 -100)' }, ears);
+    el('ellipse', { cx: 48, cy: -100, rx: 3, ry: 15, fill: '#ffb3c1', transform: 'rotate(10 48 -100)' }, ears);
+    el('circle', { cx: -36, cy: -48, r: 10, fill: '#fff' }, tail);
+    el('circle', { cx: 52, cy: -57, r: 4, fill: '#ffb3c1', opacity: .7 }, head);
+  } else {
+    el('circle', { cx: 28, cy: -82, r: 8, fill: c.body }, ears);
+    el('circle', { cx: 28, cy: -82, r: 4, fill: c.belly }, ears);
+    el('circle', { cx: 50, cy: -84, r: 8, fill: c.body }, ears);
+    el('circle', { cx: 50, cy: -84, r: 4, fill: c.belly }, ears);
+    el('circle', { cx: -36, cy: -48, r: 7, fill: c.body }, tail);
+  }
+
+  // 가까운 쪽 다리
+  mkLeg(-8, c.body); mkLeg(24, c.body);
+  // 가까운 다리가 몸 위에 오도록 마지막에 다시 붙임
+  return { root, bob, legs, tail, head, ears };
+}
+
+const TYPES = ['cat', 'dog', 'rabbit', 'bear'];
+const SPACING = 150;
+const GROUND_Y = 262;
+const animalsLayer = document.getElementById('animals');
+const animals = TYPES.map(t => {
+  const a = buildAnimal(t);
+  animalsLayer.appendChild(a.root);
+  return a;
+});
+
+/* ===== 스탑워치 상태 ===== */
+const digits = document.getElementById('digits');
+const signal = document.getElementById('signal');
+const startStop = document.getElementById('startStop');
+const lapReset = document.getElementById('lapReset');
+const lapsEl = document.getElementById('laps');
+const emptyEl = document.getElementById('empty');
+const soundBtn = document.getElementById('sound');
+
+let running = false, startTime = 0, elapsed = 0, rafId = null;
+let laps = [];
+let soundOn = true;
+
+const pad = (n, l = 2) => String(n).padStart(l, '0');
+function parts(ms) {
+  const t = Math.floor(ms / 10);
+  const cs = t % 100, s = Math.floor(t / 100) % 60, m = Math.floor(t / 6000) % 60, h = Math.floor(t / 360000);
+  return { main: (h ? pad(h) + ':' : '') + pad(m) + ':' + pad(s), cs: '.' + pad(cs) };
+}
+const plain = ms => { const p = parts(ms); return p.main + p.cs; };
+const nowMs = () => elapsed + (running ? performance.now() - startTime : 0);
+
+/* ===== 애니메이션 (경과 시간에 맞춰 1초 = 1비트) ===== */
+const CROSS_SECONDS = 14;                          // 한 번 건너는 데 걸리는 시간
+const TRAVEL = 800 + SPACING * animals.length + 120;
+
+function pose(ms) {
+  const sec = ms / 1000;
+  const beat = sec % 1;                            // 0~1 비트 위상
+  const progress = (sec / CROSS_SECONDS) % 1;
+  const leader = progress * TRAVEL - SPACING * animals.length;
+  const hop = Math.abs(Math.sin(Math.PI * beat));  // 비트마다 한 번 튀기
+  const swing = Math.sin(beat * Math.PI * 2);      // 한 비트에 한 걸음 사이클
+
+  animals.forEach((a, i) => {
+    const x = leader + (animals.length - 1 - i) * SPACING + 60;
+    const y = GROUND_Y - (i % 2 ? 0 : 0);
+    a.root.setAttribute('transform', `translate(${x} ${y})`);
+    a.bob.setAttribute('transform', `translate(0 ${-hop * 10})`);
+    a.legs.forEach((l, k) => {
+      const dir = (k % 2 === 0) ? 1 : -1;
+      const flip = k >= 2 ? -1 : 1;                // 앞/뒤 다리 반대로
+      const ang = swing * 28 * dir * flip;
+      l.g.setAttribute('transform', `translate(${l.px} -32) rotate(${ang})`);
+    });
+    a.tail.setAttribute('transform', `rotate(${Math.sin(beat * Math.PI * 4 + i) * 8} -34 -50)`);
+    a.head.setAttribute('transform', `rotate(${hop * -4} 38 -50)`);
+  });
+}
+
+function render() {
+  const ms = nowMs();
+  const p = parts(ms);
+  digits.innerHTML = p.main + '<span class="cs">' + p.cs + '</span>';
+  pose(ms);
+  document.title = running ? p.main + ' · 횡단보도 스탑워치' : '횡단보도 스탑워치';
+}
+function tick() { render(); rafId = requestAnimationFrame(tick); }
+
+/* ===== 사운드 (오리지널 비트, 60 BPM) ===== */
+let ctx = null, schedTimer = null, nextBeatTime = 0, beatIdx = 0, noiseBuf = null;
+const BASS = [110, 110, 130.81, 98];               // A2 A2 C3 G2
+const MELODY = [440, 523.25, 659.25, 523.25];
+
+function ensureAudio() {
+  if (ctx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ctx = new AC();
+  noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function env(g, t, peak, dur) {
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+}
+function kick(t) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(160, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + 0.18);
+  env(g, t, 0.9, 0.25);
+  o.connect(g).connect(ctx.destination);
+  o.start(t); o.stop(t + 0.3);
+}
+function hat(t, vol) {
+  const s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  s.buffer = noiseBuf; f.type = 'highpass'; f.frequency.value = 7000;
+  env(g, t, vol, 0.06);
+  s.connect(f).connect(g).connect(ctx.destination);
+  s.start(t);
+}
+function note(t, freq, type, vol, dur) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = type; o.frequency.value = freq;
+  env(g, t, vol, dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+function scheduleBeat(t, idx) {
+  const i = idx % 4;
+  kick(t);
+  note(t, BASS[i], 'triangle', 0.35, 0.45);
+  note(t + 0.5, MELODY[i], 'square', 0.04, 0.2);
+  hat(t + 0.5, 0.25);
+  if (i === 1 || i === 3) hat(t, 0.12);
+}
+function startSound(offsetSec) {
+  if (!soundOn) return;
+  ensureAudio();
+  if (!ctx) return;
+  ctx.resume();
+  beatIdx = Math.floor(nowMs() / 1000);
+  nextBeatTime = ctx.currentTime + 0.06 + offsetSec;
+  clearInterval(schedTimer);
+  schedTimer = setInterval(() => {
+    while (nextBeatTime < ctx.currentTime + 0.2) {
+      scheduleBeat(nextBeatTime, beatIdx++);
+      nextBeatTime += 1;
+    }
+  }, 30);
+}
+function stopSound() { clearInterval(schedTimer); schedTimer = null; }
+
+/* ===== 동작 ===== */
+function toggle() {
+  if (!running) {
+    startTime = performance.now();
+    running = true;
+    // 다음 비트까지 남은 시간에 맞춰 사운드 시작 (시각 효과와 박자 동기화)
+    const frac = (elapsed / 1000) % 1;
+    startSound(frac === 0 ? 0 : 1 - frac);
+    rafId = requestAnimationFrame(tick);
+    signal.classList.add('running');
+    startStop.textContent = '정지';
+    startStop.classList.add('running');
+    lapReset.textContent = '랩';
+    lapReset.disabled = false;
+  } else {
+    elapsed += performance.now() - startTime;
+    running = false;
+    cancelAnimationFrame(rafId);
+    stopSound();
+    render();
+    signal.classList.remove('running');
+    startStop.textContent = '계속';
+    startStop.classList.remove('running');
+    lapReset.textContent = '초기화';
+  }
+}
+function lap() { laps.push(nowMs()); renderLaps(); }
+function reset() {
+  running = false; cancelAnimationFrame(rafId); stopSound();
+  elapsed = 0; laps = [];
+  signal.classList.remove('running');
+  render(); renderLaps();
+  startStop.textContent = '시작';
+  startStop.classList.remove('running');
+  lapReset.textContent = '랩';
+  lapReset.disabled = true;
+}
+function renderLaps() {
+  lapsEl.innerHTML = '';
+  emptyEl.style.display = laps.length ? 'none' : 'block';
+  if (!laps.length) return;
+  const splits = laps.map((t, i) => t - (i ? laps[i - 1] : 0));
+  let best = -1, worst = -1;
+  if (splits.length > 1) {
+    best = splits.indexOf(Math.min(...splits));
+    worst = splits.indexOf(Math.max(...splits));
+  }
+  for (let i = splits.length - 1; i >= 0; i--) {
+    const li = document.createElement('li');
+    if (i === best) li.className = 'best'; else if (i === worst) li.className = 'worst';
+    const icon = SPECIES[TYPES[i % TYPES.length]].icon;
+    li.innerHTML = '<span class="ico">' + icon + '</span><span class="n">랩 ' + (i + 1) +
+      '</span><span class="split">' + plain(splits[i]) + '</span><span class="total">' + plain(laps[i]) + '</span>';
+    lapsEl.appendChild(li);
+  }
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  soundBtn.textContent = soundOn ? '🔊' : '🔇';
+  if (!soundOn) stopSound();
+  else if (running) { const f = (nowMs() / 1000) % 1; startSound(f === 0 ? 0 : 1 - f); }
+}
+
+startStop.addEventListener('click', toggle);
+lapReset.addEventListener('click', () => (running ? lap() : reset()));
+soundBtn.addEventListener('click', toggleSound);
+document.addEventListener('keydown', e => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  else if (k === 'l' && running) lap();
+  else if (k === 'r' && !running && elapsed > 0) reset();
+  else if (k === 'm') toggleSound();
+});
+
+render();
+renderLaps();
+</script>
+</body>
+</html>
